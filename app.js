@@ -15,8 +15,8 @@ const beatOptions = document.querySelectorAll('input[name="beats-per-root"]');
 // --- Metronome State and Constants ---
 let audioContext = null;
 let isRunning = false;
-let tempo = 120; // BPM
-let beatsPerRoot = 2;
+let tempo = 60; // BPM
+let beatsPerRoot = 4;
 let nextNoteTime = 0.0; // The audio context time when the next beat is scheduled
 let currentBeat = 0;    // The current beat within the root cycle (1, 2, 3, or 4)
 let timerWorker = null; // Used for look-ahead scheduling
@@ -87,7 +87,7 @@ function scheduleClick(time, beatNumber) {
     // Frequencies: 880Hz for downbeat (higher pitch), 440Hz for others
     const frequency = isDownbeat ? 880 : 440;
     // Lower volumes for a more soothing sine wave sound
-    const volume = isDownbeat ? 0.6 : 0.4;
+    const volume = isDownbeat ? 0.6 : 0.6;
     const duration = 0.05; // 50ms click
 
     // 🔑 CHANGE MADE HERE: Set oscillator type to sine
