@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Root Progression Generator</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <div class="container">
+        <h1>Root Progression Generator 🎶</h1>
+
+        <div id="root-display">
+            <div id="current-root">C</div>
+            <div id="upcoming-root-container">Next: <span id="upcoming-root">G</span></div>
+        </div>
+
+        <div class="controls">
+            <h2>Metronome & Settings</h2>
+
+            <div class="metronome-controls">
+                <input type="range" id="tempo-slider" min="40" max="240" value="120">
+                <span id="bpm-display">120 BPM</span>
+                <button id="start-stop-btn">Start Metronome</button>
+            </div>
+
+            <div id="beat-indicator"></div>
+
+            <h3>Beats Per Root</h3>
+            <div class="beat-options">
+                <input type="radio" id="beats-2" name="beats-per-root" value="2" checked>
+                <label for="beats-2">2 Beats</label>
+
+                <input type="radio" id="beats-3" name="beats-per-root" value="3">
+                <label for="beats-3">3 Beats</label>
+
+                <input type="radio" id="beats-4" name="beats-per-root" value="4">
+                <label for="beats-4">4 Beats</label>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
