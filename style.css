@@ -70,7 +70,12 @@ h1 {
 
 input[type="range"] {
     width: 150px;
+    
+    /* FIX: Add the standard property here */
     -webkit-appearance: none;
+    appearance: none; 
+    /* END FIX */
+    
     height: 8px;
     background: #bdc3c7;
     border-radius: 5px;
