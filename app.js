@@ -15,11 +15,12 @@ const beatOptions = document.querySelectorAll('input[name="beats-per-root"]');
 // --- Metronome State and Constants ---
 let audioContext = null;
 let isRunning = false;
-let tempo = 60; // BPM
-let beatsPerRoot = 4;
+let tempo = 120; // BPM
+let beatsPerRoot = 2;
 let nextNoteTime = 0.0; // The audio context time when the next beat is scheduled
 let currentBeat = 0;    // The current beat within the root cycle (1, 2, 3, or 4)
 let timerWorker = null; // Used for look-ahead scheduling
+let wakeLock = null;    // New variable to store the Wake Lock object
 
 const LOOK_AHEAD_TIME = 0.1; // How far ahead (in seconds) to schedule the audio (100ms)
 const SCHEDULE_INTERVAL = 25; // How often (in ms) the worker checks the clock
@@ -29,7 +30,6 @@ let currentRoot = 'C';
 let upcomingRoot = 'G';
 
 // --- Web Worker Code Embedded (The Fix!) ---
-// This code is what used to be in metronome_worker.js
 const workerCode = `
     let timerID = null;
     let interval = 25; 
@@ -56,7 +56,40 @@ const workerURL = URL.createObjectURL(workerBlob);
 // --- End Web Worker Fix ---
 
 
-// --- Core Functions ---
+// --- Wake Lock Functions (NEW) ---
+
+/** Requests a screen wake lock if the API is available. */
+async function requestWakeLock() {
+    if ('wakeLock' in navigator) {
+        try {
+            // Request a screen wake lock
+            wakeLock = await navigator.wakeLock.request('screen');
+            wakeLock.addEventListener('release', () => {
+                console.log('Wake Lock was released');
+                wakeLock = null;
+            });
+            console.log('Wake Lock is active');
+        } catch (err) {
+            console.error(`${err.name}, ${err.message}`);
+        }
+    } else {
+        console.warn('Wake Lock API not supported in this browser.');
+    }
+}
+
+/** Releases the screen wake lock. */
+function releaseWakeLock() {
+    if (wakeLock) {
+        wakeLock.release()
+            .then(() => {
+                wakeLock = null;
+                console.log('Wake Lock released successfully.');
+            });
+    }
+}
+
+
+// --- Core Functions (mostly unchanged) ---
 
 /** Generates a new random root, ensuring it's not the same as the current root. */
 function generateNewRoot(excludeRoot) {
@@ -84,13 +117,10 @@ function scheduleClick(time, beatNumber) {
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
 
-    // Frequencies: 880Hz for downbeat (higher pitch), 440Hz for others
     const frequency = isDownbeat ? 880 : 440;
-    // Lower volumes for a more soothing sine wave sound
-    const volume = isDownbeat ? 0.6 : 0.6;
+    const volume = isDownbeat ? 0.6 : 0.4;
     const duration = 0.05; // 50ms click
 
-    // 🔑 CHANGE MADE HERE: Set oscillator type to sine
     oscillator.type = 'sine'; 
     oscillator.frequency.setValueAtTime(frequency, 0);
     gainNode.gain.setValueAtTime(volume, time);
@@ -101,7 +131,7 @@ function scheduleClick(time, beatNumber) {
     oscillator.start(time);
     oscillator.stop(time + duration);
 
-    // --- Visual Update Scheduling (Aligns UI with precise audio time) ---
+    // --- Visual Update Scheduling ---
     const delayMilliseconds = (time - audioContext.currentTime) * 1000;
 
     setTimeout(() => {
@@ -124,7 +154,6 @@ function scheduleClick(time, beatNumber) {
 function scheduler() {
     const secondsPerBeat = 60.0 / tempo;
 
-    // Schedule all beats that fall between the current time and the look-ahead time
     while (nextNoteTime < audioContext.currentTime + LOOK_AHEAD_TIME) {
         
         currentBeat++;
@@ -145,6 +174,9 @@ function scheduler() {
 function startMetronome() {
     if (isRunning) return;
 
+    // 🔑 ADDED WAKE LOCK REQUEST
+    requestWakeLock();
+
     // Initialize AudioContext on user interaction
     if (audioContext === null) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
@@ -158,7 +190,7 @@ function startMetronome() {
     startStopBtn.classList.add('running');
     
     nextNoteTime = audioContext.currentTime + 0.1; // Start in 100ms
-    currentBeat = beatsPerRoot; // Set to last beat so the first scheduler call advances it to 1
+    currentBeat = beatsPerRoot; 
 
     // 2. Start the Timer Worker using the Blob URL
     timerWorker = new Worker(workerURL);
@@ -180,6 +212,9 @@ function startMetronome() {
 
 /** Stops the metronome. */
 function stopMetronome() {
+    // 🔑 ADDED WAKE LOCK RELEASE
+    releaseWakeLock();
+
     if (timerWorker) {
         timerWorker.terminate(); // Stop the worker loop
         timerWorker = null;
@@ -218,11 +253,20 @@ function setupListeners() {
             }
         });
     });
+    
+    // 🔑 Re-request the lock if the screen is unlocked/activated manually (e.g., user switches apps)
+    if ('wakeLock' in navigator) {
+        document.addEventListener('visibilitychange', () => {
+            if (isRunning && document.visibilityState === 'visible') {
+                requestWakeLock();
+            }
+        });
+    }
 }
 
 // --- Initialization ---
 document.addEventListener('DOMContentLoaded', () => {
-    updateRoots(); // Initialize the first root pair
+    updateRoots(); 
     upcomingRoot = generateNewRoot(currentRoot); 
     upcomingRootEl.textContent = upcomingRoot;
     setupListeners();
