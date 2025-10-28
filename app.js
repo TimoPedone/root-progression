@@ -20,11 +20,11 @@ let beatsPerRoot = 2;
 let nextNoteTime = 0.0; 
 let currentBeat = 0;    
 let timerWorker = null; 
-let audioInitialized = false; // Flag for mobile audio unlock
+let audioInitialized = false; 
 
-// 🔑 NEW: Screen active state variables
-let keepScreenActiveTimer = null;
-const SCREEN_ACTIVE_INTERVAL = 30000; // 30 seconds (30000ms)
+// 🔑 NEW: Nodes for the persistent, silent audio stream
+let silentToneOscillator = null;
+let silentToneGain = null;
 
 const LOOK_AHEAD_TIME = 0.1; // 100ms
 const SCHEDULE_INTERVAL = 25; // 25ms
@@ -57,26 +57,44 @@ const workerCode = `
 const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
 const workerURL = URL.createObjectURL(workerBlob);
 
-// --- Screen Active Functions (NEW) ---
 
-/** Starts a timer to periodically run a harmless function to keep the screen active. */
-function startPreventScreenSleep() {
-    if (keepScreenActiveTimer) return;
+// --- Persistent Audio Functions (CRITICAL FIX) ---
+
+/** Starts the silent, persistent audio stream to prevent screen sleep. */
+function startSilentAudioStream() {
+    if (!audioContext) return;
     
-    // Periodically run a simple function to prevent the screen lock
-    keepScreenActiveTimer = setInterval(() => {
-        // We can just log to the console or run a simple calculation.
-        // The act of running code is often enough to reset the screen timeout counter.
-        console.log('Keeping screen active...');
-    }, SCREEN_ACTIVE_INTERVAL);
+    // Create the nodes if they don't exist
+    if (!silentToneOscillator) {
+        silentToneOscillator = audioContext.createOscillator();
+        silentToneGain = audioContext.createGain();
+        
+        // Set volume to near-zero (0.0001 is often used instead of absolute 0)
+        silentToneGain.gain.setValueAtTime(0.0001, audioContext.currentTime);
+        
+        // Use a very low frequency to minimize resource usage/audibility (e.g., 1Hz)
+        silentToneOscillator.frequency.setValueAtTime(1, audioContext.currentTime);
+        
+        // Connect the nodes to the destination
+        silentToneOscillator.connect(silentToneGain);
+        silentToneGain.connect(audioContext.destination);
+        
+        // Start the oscillator immediately
+        silentToneOscillator.start();
+        console.log("Persistent silent audio stream started.");
+    }
 }
 
-/** Stops the screen sleep prevention timer. */
-function stopPreventScreenSleep() {
-    if (keepScreenActiveTimer) {
-        clearInterval(keepScreenActiveTimer);
-        keepScreenActiveTimer = null;
-        console.log('Screen active prevention stopped.');
+/** Stops and disconnects the silent audio stream. */
+function stopSilentAudioStream() {
+    if (silentToneOscillator) {
+        // Schedule stop for immediate effect
+        silentToneOscillator.stop(audioContext.currentTime);
+        silentToneOscillator.disconnect();
+        
+        silentToneOscillator = null;
+        silentToneGain = null;
+        console.log("Persistent silent audio stream stopped.");
     }
 }
 
@@ -146,7 +164,6 @@ function scheduleClick(time, beatNumber) {
     oscillator.start(time);
     oscillator.stop(time + duration);
 
-    // --- Visual Update Scheduling ---
     const delayMilliseconds = (time - audioContext.currentTime) * 1000;
 
     setTimeout(() => {
@@ -185,10 +202,7 @@ function scheduler() {
 function startMetronome() {
     if (isRunning) return;
 
-    // 🔑 STEP 1: Start the screen active timer
-    startPreventScreenSleep();
-
-    // STEP 2: Initialize AudioContext
+    // STEP 1: Initialize AudioContext
     if (!audioInitialized) {
         initAudioContext();
     } else if (audioContext.state === 'suspended') {
@@ -197,6 +211,8 @@ function startMetronome() {
     
     if (!audioContext || audioContext.state === 'closed') return;
 
+    // 🔑 STEP 2: Start the persistent, silent audio stream
+    startSilentAudioStream();
 
     isRunning = true;
     startStopBtn.textContent = 'Stop Metronome';
@@ -222,8 +238,8 @@ function startMetronome() {
 }
 
 function stopMetronome() {
-    // 🔑 STEP 1: Stop the screen active timer
-    stopPreventScreenSleep();
+    // 🔑 STEP 1: Stop the persistent audio stream
+    stopSilentAudioStream();
 
     // STEP 2: Stop metronome logic
     if (timerWorker) {
