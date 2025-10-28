@@ -17,9 +17,9 @@ let audioContext = null;
 let isRunning = false;
 let tempo = 120; // BPM
 let beatsPerRoot = 2;
-let nextNoteTime = 0.0; // The audio context time when the next beat is scheduled
-let currentBeat = 0;    // The current beat within the root cycle
-let timerWorker = null; // Used for look-ahead scheduling
+let nextNoteTime = 0.0; 
+let currentBeat = 0;    
+let timerWorker = null; 
 let audioInitialized = false; // Flag for mobile initialization
 
 const LOOK_AHEAD_TIME = 0.1; // 100ms
@@ -55,7 +55,7 @@ const workerURL = URL.createObjectURL(workerBlob);
 
 // --- New Initialization/Unlock Function ---
 
-/** * Initializes the AudioContext and unlocks it on mobile browsers 
+/** Initializes the AudioContext and unlocks it on mobile browsers 
  * by playing a silent sound immediately upon user interaction.
  */
 function initAudioContext() {
@@ -64,7 +64,7 @@ function initAudioContext() {
     audioContext = new (window.AudioContext || window.webkitAudioContext)();
     
     // Play a silent buffer to satisfy the mobile browser's gesture requirement
-    const buffer = audioContext.createBuffer(1, 1, 22050); // 1-channel, 1-sample, 22050Hz rate
+    const buffer = audioContext.createBuffer(1, 1, 22050); 
     const source = audioContext.createBufferSource();
     source.buffer = buffer;
     source.connect(audioContext.destination);
@@ -103,7 +103,6 @@ function updateRoots() {
 function scheduleClick(time, beatNumber) {
     const isDownbeat = (beatNumber === 1);
     
-    // Check if the context is still running before scheduling
     if (audioContext.state === 'suspended') return;
     
     const oscillator = audioContext.createOscillator();
@@ -164,15 +163,13 @@ function scheduler() {
 function startMetronome() {
     if (isRunning) return;
 
-    // 🔑 STEP 1: Initialize and Unlock AudioContext on the very first start click
+    // 🔑 Mobile Audio Fix: Initialize and Unlock AudioContext on the very first start click
     if (!audioInitialized) {
         initAudioContext();
     } else if (audioContext.state === 'suspended') {
-        // If already initialized but suspended (e.g., user stopped it), just resume.
         audioContext.resume();
     }
     
-    // Safety check: if audio context still hasn't initialized, stop.
     if (!audioContext || audioContext.state === 'closed') return;
 
 
@@ -218,6 +215,7 @@ function stopMetronome() {
 
 /** Handles UI event listeners. */
 function setupListeners() {
+    // 🔑 SLIDER FIX: This listener must be present and correctly defined for the slider to work
     tempoSlider.addEventListener('input', (e) => {
         tempo = parseInt(e.target.value);
         bpmDisplay.textContent = `${tempo} BPM`;
@@ -239,6 +237,9 @@ function setupListeners() {
             }
         });
     });
+    
+    // Set the initial BPM display
+    bpmDisplay.textContent = `${tempo} BPM`;
 }
 
 // --- Initialization ---
