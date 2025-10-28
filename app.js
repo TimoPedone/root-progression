@@ -18,11 +18,12 @@ let isRunning = false;
 let tempo = 120; // BPM
 let beatsPerRoot = 2;
 let nextNoteTime = 0.0; // The audio context time when the next beat is scheduled
-let currentBeat = 0;    // The current beat within the root cycle (1, 2, 3, or 4)
+let currentBeat = 0;    // The current beat within the root cycle
 let timerWorker = null; // Used for look-ahead scheduling
+let audioInitialized = false; // Flag for mobile initialization
 
-const LOOK_AHEAD_TIME = 0.1; // How far ahead (in seconds) to schedule the audio (100ms)
-const SCHEDULE_INTERVAL = 25; // How often (in ms) the worker checks the clock
+const LOOK_AHEAD_TIME = 0.1; // 100ms
+const SCHEDULE_INTERVAL = 25; // 25ms
 
 // --- Root State ---
 let currentRoot = 'C';
@@ -52,10 +53,35 @@ const workerCode = `
 const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
 const workerURL = URL.createObjectURL(workerBlob);
 
+// --- New Initialization/Unlock Function ---
+
+/** * Initializes the AudioContext and unlocks it on mobile browsers 
+ * by playing a silent sound immediately upon user interaction.
+ */
+function initAudioContext() {
+    if (audioInitialized) return;
+
+    audioContext = new (window.AudioContext || window.webkitAudioContext)();
+    
+    // Play a silent buffer to satisfy the mobile browser's gesture requirement
+    const buffer = audioContext.createBuffer(1, 1, 22050); // 1-channel, 1-sample, 22050Hz rate
+    const source = audioContext.createBufferSource();
+    source.buffer = buffer;
+    source.connect(audioContext.destination);
+    source.start(0);
+
+    // Call resume() just in case the context was created in a suspended state
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+    
+    audioInitialized = true;
+    console.log("AudioContext unlocked and initialized.");
+}
+
 
 // --- Core Functions ---
 
-/** Generates a new random root, ensuring it's not the same as the current root. */
 function generateNewRoot(excludeRoot) {
     let newRoot;
     do {
@@ -65,7 +91,6 @@ function generateNewRoot(excludeRoot) {
     return newRoot;
 }
 
-/** Updates the displayed roots, moving upcoming to current and setting a new upcoming. */
 function updateRoots() {
     currentRoot = upcomingRoot;
     upcomingRoot = generateNewRoot(currentRoot);
@@ -78,17 +103,15 @@ function updateRoots() {
 function scheduleClick(time, beatNumber) {
     const isDownbeat = (beatNumber === 1);
     
-    // Ensure the AudioContext is running before trying to schedule sound
-    if (audioContext.state === 'suspended') {
-        audioContext.resume();
-    }
-
+    // Check if the context is still running before scheduling
+    if (audioContext.state === 'suspended') return;
+    
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
 
     const frequency = isDownbeat ? 880 : 440;
     const volume = isDownbeat ? 0.6 : 0.4;
-    const duration = 0.05; // 50ms click
+    const duration = 0.05; 
 
     oscillator.type = 'sine'; 
     oscillator.frequency.setValueAtTime(frequency, 0);
@@ -104,16 +127,13 @@ function scheduleClick(time, beatNumber) {
     const delayMilliseconds = (time - audioContext.currentTime) * 1000;
 
     setTimeout(() => {
-        // Update Beat Indicator
         beatIndicator.textContent = `Beat ${beatNumber} of ${beatsPerRoot}`;
         
         if (isDownbeat) {
-            // Flash current root color
             currentRootEl.style.color = '#1abc9c'; 
             setTimeout(() => {
                 currentRootEl.style.color = '#e74c3c'; 
             }, 50);
-            // Update the root display
             updateRoots();
         }
     }, delayMilliseconds);
@@ -123,7 +143,6 @@ function scheduleClick(time, beatNumber) {
 function scheduler() {
     const secondsPerBeat = 60.0 / tempo;
 
-    // Schedule all beats that fall between the current time and the look-ahead time
     while (nextNoteTime < audioContext.currentTime + LOOK_AHEAD_TIME) {
         
         currentBeat++;
@@ -138,38 +157,41 @@ function scheduler() {
     }
 }
 
+
 // --- Control Functions ---
 
 /** Initializes and starts the metronome. */
 function startMetronome() {
     if (isRunning) return;
 
-    // Initialize AudioContext on user interaction
-    if (audioContext === null) {
-        audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    if (audioContext.state === 'suspended') {
+    // 🔑 STEP 1: Initialize and Unlock AudioContext on the very first start click
+    if (!audioInitialized) {
+        initAudioContext();
+    } else if (audioContext.state === 'suspended') {
+        // If already initialized but suspended (e.g., user stopped it), just resume.
         audioContext.resume();
     }
+    
+    // Safety check: if audio context still hasn't initialized, stop.
+    if (!audioContext || audioContext.state === 'closed') return;
+
 
     isRunning = true;
     startStopBtn.textContent = 'Stop Metronome';
     startStopBtn.classList.add('running');
     
-    nextNoteTime = audioContext.currentTime + 0.1; // Start in 100ms
-    currentBeat = beatsPerRoot; // Set to last beat so the first scheduler call advances it to 1
+    nextNoteTime = audioContext.currentTime + 0.1; 
+    currentBeat = beatsPerRoot; 
 
-    // 2. Start the Timer Worker using the Blob URL
+    // Start the Timer Worker 
     timerWorker = new Worker(workerURL);
     
-    // Handle messages from the worker
     timerWorker.onmessage = function(e) {
         if (e.data === 'tick') {
             scheduler();
         }
     };
     
-    // Initialize worker and start the loop
     timerWorker.postMessage({
         'interval': SCHEDULE_INTERVAL,
         'lookAhead': LOOK_AHEAD_TIME
@@ -180,7 +202,7 @@ function startMetronome() {
 /** Stops the metronome. */
 function stopMetronome() {
     if (timerWorker) {
-        timerWorker.terminate(); // Stop the worker loop
+        timerWorker.terminate(); 
         timerWorker = null;
     }
     isRunning = false;
