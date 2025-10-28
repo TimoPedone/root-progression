@@ -17,19 +17,19 @@ let audioContext = null;
 let isRunning = false;
 let tempo = 120; // BPM
 let beatsPerRoot = 2;
-let nextNoteTime = 0.0; // The audio context time when the next beat is scheduled
-let currentBeat = 0;    // The current beat within the root cycle (1, 2, 3, or 4)
-let timerWorker = null; // Used for look-ahead scheduling
-let wakeLock = null;    // New variable to store the Wake Lock object
+let nextNoteTime = 0.0; 
+let currentBeat = 0;    
+let timerWorker = null; 
+let wakeLock = null; 
 
-const LOOK_AHEAD_TIME = 0.1; // How far ahead (in seconds) to schedule the audio (100ms)
-const SCHEDULE_INTERVAL = 25; // How often (in ms) the worker checks the clock
+const LOOK_AHEAD_TIME = 0.1; 
+const SCHEDULE_INTERVAL = 25; 
 
 // --- Root State ---
 let currentRoot = 'C';
 let upcomingRoot = 'G';
 
-// --- Web Worker Code Embedded (The Fix!) ---
+// --- Web Worker Code Embedded ---
 const workerCode = `
     let timerID = null;
     let interval = 25; 
@@ -50,30 +50,32 @@ const workerCode = `
         self.postMessage('tick');
     }
 `;
-// Create a Blob and a URL for the worker code
 const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
 const workerURL = URL.createObjectURL(workerBlob);
-// --- End Web Worker Fix ---
 
 
-// --- Wake Lock Functions (NEW) ---
+// --- Wake Lock Functions (IMPROVED RELIABILITY) ---
 
 /** Requests a screen wake lock if the API is available. */
 async function requestWakeLock() {
     if ('wakeLock' in navigator) {
-        try {
-            // Request a screen wake lock
-            wakeLock = await navigator.wakeLock.request('screen');
-            wakeLock.addEventListener('release', () => {
-                console.log('Wake Lock was released');
+        // Only request if a lock isn't currently held
+        if (!wakeLock) {
+            try {
+                wakeLock = await navigator.wakeLock.request('screen');
+                wakeLock.addEventListener('release', () => {
+                    console.log('Wake Lock was released by the system.');
+                    wakeLock = null;
+                });
+                console.log('Wake Lock is active.');
+            } catch (err) {
+                // This usually happens if the user hasn't interacted enough or permissions are denied.
+                console.error(`Wake Lock failed: ${err.message}`);
                 wakeLock = null;
-            });
-            console.log('Wake Lock is active');
-        } catch (err) {
-            console.error(`${err.name}, ${err.message}`);
+            }
         }
     } else {
-        console.warn('Wake Lock API not supported in this browser.');
+        console.warn('Wake Lock API not supported. Screen may dim.');
     }
 }
 
@@ -88,10 +90,8 @@ function releaseWakeLock() {
     }
 }
 
-
 // --- Core Functions (mostly unchanged) ---
 
-/** Generates a new random root, ensuring it's not the same as the current root. */
 function generateNewRoot(excludeRoot) {
     let newRoot;
     do {
@@ -101,7 +101,6 @@ function generateNewRoot(excludeRoot) {
     return newRoot;
 }
 
-/** Updates the displayed roots, moving upcoming to current and setting a new upcoming. */
 function updateRoots() {
     currentRoot = upcomingRoot;
     upcomingRoot = generateNewRoot(currentRoot);
@@ -110,16 +109,20 @@ function updateRoots() {
     upcomingRootEl.textContent = upcomingRoot;
 }
 
-/** Creates and schedules the click sound using the Web Audio API. */
 function scheduleClick(time, beatNumber) {
     const isDownbeat = (beatNumber === 1);
     
+    // Ensure the AudioContext is running before trying to schedule sound
+    if (audioContext.state === 'suspended') {
+        audioContext.resume();
+    }
+
     const oscillator = audioContext.createOscillator();
     const gainNode = audioContext.createGain();
 
     const frequency = isDownbeat ? 880 : 440;
     const volume = isDownbeat ? 0.6 : 0.4;
-    const duration = 0.05; // 50ms click
+    const duration = 0.05; 
 
     oscillator.type = 'sine'; 
     oscillator.frequency.setValueAtTime(frequency, 0);
@@ -135,22 +138,18 @@ function scheduleClick(time, beatNumber) {
     const delayMilliseconds = (time - audioContext.currentTime) * 1000;
 
     setTimeout(() => {
-        // Update Beat Indicator
         beatIndicator.textContent = `Beat ${beatNumber} of ${beatsPerRoot}`;
         
         if (isDownbeat) {
-            // Flash current root color
             currentRootEl.style.color = '#1abc9c'; 
             setTimeout(() => {
                 currentRootEl.style.color = '#e74c3c'; 
             }, 50);
-            // Update the root display
             updateRoots();
         }
     }, delayMilliseconds);
 }
 
-/** Calculates the next beat and schedules all necessary sounds/updates. */
 function scheduler() {
     const secondsPerBeat = 60.0 / tempo;
 
@@ -170,14 +169,13 @@ function scheduler() {
 
 // --- Control Functions ---
 
-/** Initializes and starts the metronome. */
 function startMetronome() {
     if (isRunning) return;
+    
+    // 1. **CRITICAL:** Request Wake Lock immediately
+    requestWakeLock(); 
 
-    // 🔑 ADDED WAKE LOCK REQUEST
-    requestWakeLock();
-
-    // Initialize AudioContext on user interaction
+    // Initialize AudioContext
     if (audioContext === null) {
         audioContext = new (window.AudioContext || window.webkitAudioContext)();
     }
@@ -189,20 +187,18 @@ function startMetronome() {
     startStopBtn.textContent = 'Stop Metronome';
     startStopBtn.classList.add('running');
     
-    nextNoteTime = audioContext.currentTime + 0.1; // Start in 100ms
+    nextNoteTime = audioContext.currentTime + 0.1; 
     currentBeat = beatsPerRoot; 
 
-    // 2. Start the Timer Worker using the Blob URL
+    // 2. Start the Timer Worker
     timerWorker = new Worker(workerURL);
     
-    // Handle messages from the worker
     timerWorker.onmessage = function(e) {
         if (e.data === 'tick') {
             scheduler();
         }
     };
     
-    // Initialize worker and start the loop
     timerWorker.postMessage({
         'interval': SCHEDULE_INTERVAL,
         'lookAhead': LOOK_AHEAD_TIME
@@ -210,13 +206,12 @@ function startMetronome() {
     timerWorker.postMessage('start');
 }
 
-/** Stops the metronome. */
 function stopMetronome() {
-    // 🔑 ADDED WAKE LOCK RELEASE
+    // 1. Release Wake Lock
     releaseWakeLock();
 
     if (timerWorker) {
-        timerWorker.terminate(); // Stop the worker loop
+        timerWorker.terminate(); 
         timerWorker = null;
     }
     isRunning = false;
@@ -230,7 +225,7 @@ function stopMetronome() {
     }
 }
 
-/** Handles UI event listeners. */
+/** Handles UI event listeners and Wake Lock re-acquisition. */
 function setupListeners() {
     tempoSlider.addEventListener('input', (e) => {
         tempo = parseInt(e.target.value);
@@ -254,20 +249,4 @@ function setupListeners() {
         });
     });
     
-    // 🔑 Re-request the lock if the screen is unlocked/activated manually (e.g., user switches apps)
-    if ('wakeLock' in navigator) {
-        document.addEventListener('visibilitychange', () => {
-            if (isRunning && document.visibilityState === 'visible') {
-                requestWakeLock();
-            }
-        });
-    }
-}
-
-// --- Initialization ---
-document.addEventListener('DOMContentLoaded', () => {
-    updateRoots(); 
-    upcomingRoot = generateNewRoot(currentRoot); 
-    upcomingRootEl.textContent = upcomingRoot;
-    setupListeners();
-});
+    // 2. **CRITICAL
