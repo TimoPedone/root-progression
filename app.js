@@ -20,7 +20,11 @@ let beatsPerRoot = 2;
 let nextNoteTime = 0.0; 
 let currentBeat = 0;    
 let timerWorker = null; 
-let audioInitialized = false; // Flag for mobile initialization
+let audioInitialized = false; // Flag for mobile audio unlock
+
+// 🔑 NEW: Screen active state variables
+let keepScreenActiveTimer = null;
+const SCREEN_ACTIVE_INTERVAL = 30000; // 30 seconds (30000ms)
 
 const LOOK_AHEAD_TIME = 0.1; // 100ms
 const SCHEDULE_INTERVAL = 25; // 25ms
@@ -53,11 +57,33 @@ const workerCode = `
 const workerBlob = new Blob([workerCode], { type: 'application/javascript' });
 const workerURL = URL.createObjectURL(workerBlob);
 
-// --- New Initialization/Unlock Function ---
+// --- Screen Active Functions (NEW) ---
 
-/** Initializes the AudioContext and unlocks it on mobile browsers 
- * by playing a silent sound immediately upon user interaction.
- */
+/** Starts a timer to periodically run a harmless function to keep the screen active. */
+function startPreventScreenSleep() {
+    if (keepScreenActiveTimer) return;
+    
+    // Periodically run a simple function to prevent the screen lock
+    keepScreenActiveTimer = setInterval(() => {
+        // We can just log to the console or run a simple calculation.
+        // The act of running code is often enough to reset the screen timeout counter.
+        console.log('Keeping screen active...');
+    }, SCREEN_ACTIVE_INTERVAL);
+}
+
+/** Stops the screen sleep prevention timer. */
+function stopPreventScreenSleep() {
+    if (keepScreenActiveTimer) {
+        clearInterval(keepScreenActiveTimer);
+        keepScreenActiveTimer = null;
+        console.log('Screen active prevention stopped.');
+    }
+}
+
+
+// --- Initialization/Unlock Function ---
+
+/** Initializes the AudioContext and unlocks it on mobile browsers. */
 function initAudioContext() {
     if (audioInitialized) return;
 
@@ -70,7 +96,6 @@ function initAudioContext() {
     source.connect(audioContext.destination);
     source.start(0);
 
-    // Call resume() just in case the context was created in a suspended state
     if (audioContext.state === 'suspended') {
         audioContext.resume();
     }
@@ -80,7 +105,7 @@ function initAudioContext() {
 }
 
 
-// --- Core Functions ---
+// --- Core Functions (Unchanged) ---
 
 function generateNewRoot(excludeRoot) {
     let newRoot;
@@ -99,7 +124,6 @@ function updateRoots() {
     upcomingRootEl.textContent = upcomingRoot;
 }
 
-/** Creates and schedules the click sound using the Web Audio API. */
 function scheduleClick(time, beatNumber) {
     const isDownbeat = (beatNumber === 1);
     
@@ -138,7 +162,6 @@ function scheduleClick(time, beatNumber) {
     }, delayMilliseconds);
 }
 
-/** Calculates the next beat and schedules all necessary sounds/updates. */
 function scheduler() {
     const secondsPerBeat = 60.0 / tempo;
 
@@ -159,11 +182,13 @@ function scheduler() {
 
 // --- Control Functions ---
 
-/** Initializes and starts the metronome. */
 function startMetronome() {
     if (isRunning) return;
 
-    // 🔑 Mobile Audio Fix: Initialize and Unlock AudioContext on the very first start click
+    // 🔑 STEP 1: Start the screen active timer
+    startPreventScreenSleep();
+
+    // STEP 2: Initialize AudioContext
     if (!audioInitialized) {
         initAudioContext();
     } else if (audioContext.state === 'suspended') {
@@ -196,8 +221,11 @@ function startMetronome() {
     timerWorker.postMessage('start');
 }
 
-/** Stops the metronome. */
 function stopMetronome() {
+    // 🔑 STEP 1: Stop the screen active timer
+    stopPreventScreenSleep();
+
+    // STEP 2: Stop metronome logic
     if (timerWorker) {
         timerWorker.terminate(); 
         timerWorker = null;
@@ -215,7 +243,6 @@ function stopMetronome() {
 
 /** Handles UI event listeners. */
 function setupListeners() {
-    // 🔑 SLIDER FIX: This listener must be present and correctly defined for the slider to work
     tempoSlider.addEventListener('input', (e) => {
         tempo = parseInt(e.target.value);
         bpmDisplay.textContent = `${tempo} BPM`;
@@ -238,7 +265,6 @@ function setupListeners() {
         });
     });
     
-    // Set the initial BPM display
     bpmDisplay.textContent = `${tempo} BPM`;
 }
 
